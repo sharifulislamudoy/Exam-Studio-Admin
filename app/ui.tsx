@@ -58,7 +58,7 @@ export function Modal({
         <header>
           <h2>{title}</h2>
           <Button secondary onClick={onClose}>
-            বন্ধ করুন
+            Close
           </Button>
         </header>
         {children}

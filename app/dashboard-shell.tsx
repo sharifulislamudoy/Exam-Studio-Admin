@@ -5,20 +5,23 @@ import type { UserView } from "./contracts";
 import { Button } from "./ui";
 
 const navigation = {
-  overview: { label: "সারসংক্ষেপ", shortLabel: "সারসংক্ষেপ", icon: "home" },
+  overview: { label: "Home", shortLabel: "Home", icon: "home" },
   assessments: {
-    label: "পরীক্ষা ও হোমওয়ার্ক",
-    shortLabel: "পরীক্ষা ও কাজ",
+    label: "Exams and homework",
+    shortLabel: "Assessments",
     icon: "clipboard",
   },
-  students: { label: "শিক্ষার্থী", shortLabel: "শিক্ষার্থী", icon: "users" },
-  review: { label: "নম্বর ও ফলাফল", shortLabel: "ফলাফল", icon: "chart" },
+  students: { label: "Students", shortLabel: "Students", icon: "users" },
+  routine: { label: "Routine", shortLabel: "Routine", icon: "clock" },
+  fees: { label: "Fees", shortLabel: "Fees", icon: "wallet" },
+  review: { label: "Grading and results", shortLabel: "Results", icon: "chart" },
 } as const;
 
 export type DashboardTab = keyof typeof navigation;
 const tabs = Object.keys(navigation) as DashboardTab[];
 
 const iconPaths = {
+  wallet: "M3 6h17v14H3z M3 6l14-3v3 M15 11h5v5h-5z",
   school: "M2 10l10-5 10 5-10 5-10-5z M6 12v5c3 3 9 3 12 0v-5 M22 10v6",
   home: "M3 10l9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 21v-7h6v7",
   clipboard: "M9 5H6a2 2 0 0 0-2 2v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V7a2 2 0 0 0-2-2h-3 M9 3h6v4H9z M8 12h8 M8 16h6",
@@ -74,7 +77,7 @@ export function DashboardShell({
       await onLogout();
     } catch (error) {
       setLogoutError(
-        error instanceof Error ? error.message : "লগআউট করা যায়নি।",
+        error instanceof Error ? error.message : "Could not sign out.",
       );
     } finally {
       setSigningOut(false);
@@ -95,13 +98,12 @@ export function DashboardShell({
             </span>
             <span>
               <strong>Exam Studio</strong>
-              <small>Teacher Dashboard</small>
             </span>
           </button>
           <button
             type="button"
             className="icon-button"
-            aria-label="প্রোফাইল খুলুন"
+            aria-label="Open profile"
             aria-haspopup="dialog"
             onClick={() => {
               setLogoutError("");
@@ -114,8 +116,8 @@ export function DashboardShell({
       </header>
 
       <div className="studio-layout">
-        <nav className="studio-nav" aria-label="ড্যাশবোর্ড মেনু">
-          {tabs.map((id) => {
+        <nav className="studio-nav" aria-label="Dashboard navigation">
+          {tabs.filter((key) => key !== "fees" || teacher.canManageFees).map((id) => {
             const { icon, label, shortLabel } = navigation[id];
             return (
               <button
@@ -142,20 +144,12 @@ export function DashboardShell({
             className={tab === "overview" ? "pagehead dashboard-hero" : "pagehead"}
           >
             <div>
-              {tab === "overview" && (
-                <p className="hero-tag">Teacher Workspace</p>
-              )}
-              <h1>{navigation[tab].label}</h1>
-              <p className="muted">
-                {tab === "overview"
-                  ? `স্বাগতম, ${teacher.name}। পরীক্ষা, হোমওয়ার্ক ও ফলাফল এক জায়গায় পরিচালনা করুন।`
-                  : "পরীক্ষা ও হোমওয়ার্কের সময় নির্ধারণে বাংলাদেশ সময় ব্যবহার করুন।"}
-              </p>
+              <h1>{tab === "overview" ? "Today" : navigation[tab].label}</h1>
             </div>
-            {tab !== "students" && (
+            {(tab === "overview" || tab === "assessments") && (
               <Button onClick={onCreate}>
                 <DashboardIcon name="plus" />
-                নতুন পরীক্ষা / হোমওয়ার্ক
+                New assessment
               </Button>
             )}
           </header>
@@ -173,11 +167,11 @@ export function DashboardShell({
       >
         <section className="drawer-content">
           <header className="drawer-heading">
-            <h2 id="teacher-profile-title">আমার প্রোফাইল</h2>
+            <h2 id="teacher-profile-title">My profile</h2>
             <button
               type="button"
               className="icon-button"
-              aria-label="প্রোফাইল বন্ধ করুন"
+              aria-label="Close profile"
               autoFocus
               onClick={() => dialog.current?.close()}
             >
@@ -188,7 +182,7 @@ export function DashboardShell({
             <span className="teacher-avatar">
               <DashboardIcon name="person" />
             </span>
-            <span className="teacher-role">শিক্ষক</span>
+            <span className="teacher-role">Teacher</span>
             <strong>{teacher.name}</strong>
             <small>{teacher.email}</small>
           </div>
@@ -202,7 +196,7 @@ export function DashboardShell({
             disabled={signingOut}
           >
             <DashboardIcon name="logout" />
-            {signingOut ? "লগআউট হচ্ছে…" : "লগআউট"}
+            {signingOut ? "Signing out…" : "Sign out"}
           </Button>
         </section>
       </dialog>

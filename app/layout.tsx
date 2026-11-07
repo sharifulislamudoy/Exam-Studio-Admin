@@ -6,7 +6,7 @@ export const metadata: Metadata = {
 };
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="bn">
+    <html lang="en">
       <body>{children}</body>
     </html>
   );

@@ -16,6 +16,9 @@ import {
   type QuestionView,
   type UserView,
 } from "./contracts";
+import { Progress } from "./progress";
+import { Routine } from "./routine";
+import { Fees } from "./fees";
 import { api } from "./api";
 import { Button, Field, Status, Panel, Modal } from "./ui";
 import {
@@ -34,6 +37,7 @@ type Submission = {
   finishedAt: string | null;
   writtenScore: number | null;
   feedback: string;
+  revisionFeedback?: string | null;
   resultPublished: boolean;
   mcqScore: number;
   writtenMax: number;
@@ -48,7 +52,7 @@ const date = (s: string) =>
     timeStyle: "short",
   });
 const message = (e: unknown) =>
-  e instanceof Error ? e.message : "কাজটি সম্পন্ন হয়নি।";
+  e instanceof Error ? e.message : "Something went wrong.";
 export default function Dashboard() {
   const [client] = useState(
     () =>
@@ -113,7 +117,7 @@ function Studio() {
   if (me.isPending)
     return (
       <main className="login">
-        <p>লোড হচ্ছে…</p>
+        <p>Loading…</p>
       </main>
     );
   if (!teacher)
@@ -143,6 +147,9 @@ function Studio() {
           for (const key of ["students", "exams", "attempts"]) {
             qc.removeQueries({ queryKey: [key], exact: true });
           }
+          qc.removeQueries({ queryKey: ["fees"] });
+          qc.removeQueries({ queryKey: ["routine"] });
+          qc.removeQueries({ queryKey: ["homework-photo"] });
           setTab("overview");
           setNotice("");
           setError("");
@@ -165,30 +172,32 @@ function Studio() {
               {message(e)}
             </p>
           ))}
+        {tab === "routine" && <Routine students={ss} />}
+        {tab === "fees" && teacher.canManageFees && <Fees students={ss} />}
         {tab === "overview" && (
           <>
             <div className="stats">
               {([
                 [
                   "users",
-                  "অনুমোদিত শিক্ষার্থী",
+                  "Approved students",
                   ss.filter((student) => student.status === "APPROVED").length,
                 ],
                 [
                   "clock",
-                  "অনুমোদন বাকি",
+                  "Approval pending",
                   ss.filter(
                     (student) => student.status === "PENDING" || student.requestedClass,
                   ).length,
                 ],
                 [
                   "clipboard",
-                  "প্রকাশিত কাজ",
+                  "Published tasks",
                   ee.filter((exam) => exam.published).length,
                 ],
                 [
                   "chart",
-                  "খাতা দেখা বাকি",
+                  "Awaiting review",
                   aa.filter(
                     (attempt) =>
                       attempt.status === "FINISHED" && attempt.writtenScore === null,
@@ -199,38 +208,27 @@ function Studio() {
                   <span className={`stat-icon stat-${icon}`}>
                     <DashboardIcon name={icon} />
                   </span>
-                  <strong>{value.toLocaleString("bn-BD")}</strong>
+                  <strong>{value.toLocaleString("en-BD")}</strong>
                   <p className="muted">{title}</p>
                 </Panel>
               ))}
             </div>
-            <Panel>
-              <h3>কাজের নিয়ম</h3>
-              <ol>
-                <li>শিক্ষার্থীর signup ও class পরিবর্তন approve করুন।</li>
-                <li>
-                  প্রশ্ন, সময়, extra time ও pause limit দিয়ে কাজ প্রকাশ করুন।
-                </li>
-                <li>
-                  MCQ স্বয়ংক্রিয়ভাবে হিসাব হবে; লিখিত খাতা দেখে নম্বর দিন।
-                </li>
-                <li>চূড়ান্ত deadline শেষে ফলাফল প্রকাশ করুন।</li>
-              </ol>
-            </Panel>
+            <Routine students={ss} todayOnly />
           </>
         )}
+        {tab === "students" && <Progress students={ss} assessments={ee} submissions={aa} />}
         {tab === "students" && (
           <Panel>
             <div
               className="table-scroll"
               role="region"
-              aria-label="শিক্ষার্থীর তালিকা"
+              aria-label="Student list"
               tabIndex={0}
             >
               <table>
                 <thead>
                   <tr>
-                    <th>নাম / ইমেইল</th>
+                    <th>Name / Email</th>
                     <th>Class</th>
                     <th>Status</th>
                     <th>Approval</th>
@@ -245,9 +243,9 @@ function Studio() {
                         <small>ID: {s.id}</small>
                       </td>
                       <td>
-                        {s.className || "প্রোফাইল অসম্পূর্ণ"}
+                        {s.className || "Profile incomplete"}
                         {s.requestedClass && (
-                          <small>নতুন class: {s.requestedClass}</small>
+                          <small>Requested class: {s.requestedClass}</small>
                         )}
                       </td>
                       <td>
@@ -266,7 +264,7 @@ function Studio() {
                                       "POST",
                                       { action: "APPROVE" },
                                     ),
-                                  "শিক্ষার্থী অনুমোদিত হয়েছে।",
+                                  "Student approved.",
                                 )
                               }
                             >
@@ -285,7 +283,7 @@ function Studio() {
                                       "POST",
                                       { action: "REJECT" },
                                     ),
-                                  "Access বন্ধ করা হয়েছে।",
+                                  "Access Disabled.",
                                 )
                               }
                             >
@@ -304,7 +302,7 @@ function Studio() {
                                         "POST",
                                         { action: "APPROVE_CLASS" },
                                       ),
-                                    "Class পরিবর্তন অনুমোদিত হয়েছে।",
+                                    "Class Class change approved.",
                                   )
                                 }
                               >
@@ -321,7 +319,7 @@ function Studio() {
                                         "POST",
                                         { action: "REJECT_CLASS" },
                                       ),
-                                    "Class পরিবর্তন বাতিল হয়েছে।",
+                                    "Class Class change declined.",
                                   )
                                 }
                               >
@@ -335,25 +333,25 @@ function Studio() {
                   ))}
                 </tbody>
               </table>
-              {!ss.length && <p className="empty">এখনও শিক্ষার্থী নেই।</p>}
+              {!ss.length && <p className="empty">No students yet.</p>}
             </div>
           </Panel>
         )}
         {(tab === "overview" || tab === "assessments") && (
           <Panel>
-            <h3>Exam / homework তালিকা</h3>
+            <h3>Exam / homework List</h3>
             <div
               className="table-scroll"
               role="region"
-              aria-label="পরীক্ষা ও হোমওয়ার্কের তালিকা"
+              aria-label="Exams and homework"
               tabIndex={0}
             >
               <table>
                 <thead>
                   <tr>
-                    <th>শিরোনাম</th>
-                    <th>Class / ধরন</th>
-                    <th>সময় ও deadline</th>
+                    <th>Title</th>
+                    <th>Class / Type</th>
+                    <th>Schedule</th>
                     <th>Status / action</th>
                   </tr>
                 </thead>
@@ -363,19 +361,19 @@ function Studio() {
                       <td>
                         <b>{e.title}</b>
                         <small>
-                          {e.subject} · {e.totalMarks} নম্বর · {e.questionCount}{" "}
-                          প্রশ্ন
+                          {e.subject} · {e.totalMarks} marks · {e.questionCount}{" "}
+                          Question
                         </small>
                       </td>
                       <td>
-                        {e.classNames.join(", ")}
+                        {e.classNames.join(", ")}{Boolean(e.studentIds?.length) && (e.classNames.length ? " + " : "") + e.studentIds!.length + " selected"}
                         <small>
                           {e.kind} · {e.mode}
                         </small>
                       </td>
                       <td>
-                        <small>শুরু: {date(e.opensAt)}</small>
-                        <small>শেষ: {date(e.closesAt)}</small>
+                        <small>Start: {date(e.opensAt)}</small>
+                        <small>End: {date(e.closesAt)}</small>
                         {e.kind === "EXAM" && (
                           <small>
                             {e.mode === "MCQ_CQ"
@@ -397,7 +395,7 @@ function Studio() {
                                 onClick={() => {
                                   if (
                                     window.confirm(
-                                      "প্রকাশ করলে প্রশ্ন ও সময় আর সম্পাদনা করা যাবে না। প্রকাশ করবেন?",
+                                      "Publishing locks the questions and schedule. Publish this assessment?",
                                     )
                                   )
                                     void run(
@@ -406,7 +404,7 @@ function Studio() {
                                           `/admin/assessments/${e.id}/publish`,
                                           "POST",
                                         ),
-                                      "প্রকাশ হয়েছে। নির্বাচিত class-এ notification যোগ হয়েছে।",
+                                      "Published and sent to the assigned students.",
                                     );
                                 }}
                               >
@@ -441,7 +439,7 @@ function Studio() {
                 </tbody>
               </table>
               {!ee.length && (
-                <p className="empty">নতুন পরীক্ষা অথবা homework তৈরি করুন।</p>
+                <p className="empty">Create an exam or homework assignment.</p>
               )}
             </div>
           </Panel>
@@ -451,16 +449,16 @@ function Studio() {
             <div
               className="table-scroll"
               role="region"
-              aria-label="জমা দেওয়া কাজের তালিকা"
+              aria-label="Submissions"
               tabIndex={0}
             >
               <table>
                 <thead>
                   <tr>
-                    <th>শিক্ষার্থী / কাজ</th>
-                    <th>অবস্থা</th>
-                    <th>নম্বর</th>
-                    <th>মূল্যায়ন</th>
+                    <th>Student / Task</th>
+                    <th>Status</th>
+                    <th>marks</th>
+                    <th>Review</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -480,7 +478,7 @@ function Studio() {
                       <td>
                         MCQ: {a.mcqScore}
                         <small>
-                          Written: {a.writtenScore ?? "বাকি"} / {a.writtenMax}
+                          Written: {a.writtenScore ?? "remaining"} / {a.writtenMax}
                         </small>
                         <small>
                           {a.resultPublished ? "Published" : "Not published"}
@@ -492,7 +490,7 @@ function Studio() {
                           disabled={a.status !== "FINISHED"}
                           onClick={() => setReview(a)}
                         >
-                          নম্বর দিন / দেখুন
+                          Review submission
                         </Button>
                       </td>
                     </tr>
@@ -501,7 +499,7 @@ function Studio() {
               </table>
               {!aa.length && (
                 <p className="empty">
-                  কোনো শিক্ষার্থী এখনও পরীক্ষা শুরু করেনি।
+                  No student has started yet.
                 </p>
               )}
             </div>
@@ -510,6 +508,7 @@ function Studio() {
         {editing !== false && (
           <Editor
             initial={editing}
+            students={ss}
             close={() => setEditing(false)}
             save={async (body) => {
               const ok = await run(
@@ -521,7 +520,7 @@ function Studio() {
                     editing?.id ? "PUT" : "POST",
                     body,
                   ),
-                "খসড়া সংরক্ষণ হয়েছে।",
+                "Draft saved.",
               );
               if (ok) setEditing(false);
             }}
@@ -535,7 +534,7 @@ function Studio() {
               const ok = await run(
                 () =>
                   api(`/admin/submissions/${review.id}/grade`, "POST", body),
-                "মূল্যায়ন সংরক্ষণ হয়েছে।",
+                "Review saved.",
               );
               if (ok) setReview(null);
             }}
@@ -575,9 +574,9 @@ function Login({ onSuccess }: { onSuccess: () => void }) {
     <main className="login">
       <Panel>
         <h1>Exam Studio</h1>
-        <p className="muted">শিক্ষক ড্যাশবোর্ডে প্রবেশ করুন।</p>
+        <p className="muted">Sign in to the teacher dashboard.</p>
         <form className="login-form" onSubmit={login}>
-          <Field label="ইমেইল">
+          <Field label="Email">
             <input
               name="email"
               type="email"
@@ -586,7 +585,7 @@ function Login({ onSuccess }: { onSuccess: () => void }) {
               required
             />
           </Field>
-          <Field label="পাসওয়ার্ড">
+          <Field label="Password">
             <input
               name="password"
               type="password"
@@ -601,7 +600,7 @@ function Login({ onSuccess }: { onSuccess: () => void }) {
             </p>
           )}
           <Button type="submit" disabled={busy}>
-            {busy ? "প্রবেশ করা হচ্ছে…" : "লগইন"}
+            {busy ? "Signing in…" : "Sign in"}
           </Button>
         </form>
       </Panel>
@@ -619,11 +618,14 @@ const newQuestion = (
 function initialForm(e: AdminAssessment | null): AssessmentInput {
   return {
     title: e?.title || "",
-    subject: e?.subject || "গণিত",
+    subject: e?.subject || "Mathematics",
+    chapter: e?.chapter || "",
     classNames: (e?.classNames || ["9"]) as AssessmentInput["classNames"],
+    studentIds: e?.studentIds ?? [],
+    homeworkMethod: e?.homeworkMethod ?? "NOTEBOOK",
     kind: e?.kind || "EXAM",
     mode: e?.mode || "MCQ_CQ",
-    instructions: e?.instructions || "MCQ অ্যাপে দাও। লিখিত উত্তর খাতায় রাখো।",
+    instructions: e?.instructions || "MCQ in the app. Write your answers in your notebook.",
     opensAt: e?.opensAt || new Date().toISOString(),
     closesAt: e?.closesAt || new Date(Date.now() + 10 * 3600000).toISOString(),
     mcqSeconds: e?.mcqSeconds ?? 1200,
@@ -645,10 +647,12 @@ function initialForm(e: AdminAssessment | null): AssessmentInput {
 }
 function Editor({
   initial,
+  students,
   close,
   save,
 }: {
   initial: AdminAssessment | null;
+  students: UserView[];
   close: () => void;
   save: (data: AssessmentInput) => Promise<void>;
 }) {
@@ -691,7 +695,7 @@ function Editor({
   );
   return (
     <Modal
-      title={initial?.id ? "খসড়া সম্পাদনা" : "নতুন exam / homework"}
+      title={initial?.id ? "Edit draft" : "Create task"}
       onClose={close}
     >
       <form
@@ -710,18 +714,18 @@ function Editor({
                 .map((e) => e.message)
                 .filter(Boolean)
                 .join("; ") ||
-                "সব প্রয়োজনীয় প্রশ্ন, অপশন, নম্বর ও সময় পূরণ করুন।",
+                "Complete the required questions, options, marks and times.",
             ),
         )}
       >
         <div className="formgrid">
-          <Field label="শিরোনাম">
+          <Field label="Title">
             <input {...f.register("title")} required />
           </Field>
-          <Field label="বিষয়">
+          <Field label="Subject">
             <input {...f.register("subject")} required />
           </Field>
-          <Field label="কাজের ধরন">
+          <Field label="Task type">
             <select
               value={data.kind}
               onChange={(e) => {
@@ -737,7 +741,7 @@ function Editor({
               <option value="HOMEWORK">Homework</option>
             </select>
           </Field>
-          <Field label="প্রশ্নের পদ্ধতি">
+          <Field label="Question format">
             <select
               disabled={data.kind === "HOMEWORK"}
               value={data.mode}
@@ -745,7 +749,7 @@ function Editor({
                 const mode = e.target.value as "MCQ_CQ" | "WRITTEN";
                 if (
                   window.confirm(
-                    "পদ্ধতি বদলালে বর্তমান প্রশ্নগুলো বদলে যাবে। চালিয়ে যাবেন?",
+                    "Changing the format replaces the current questions. Continue?",
                   )
                 ) {
                   f.setValue("mode", mode);
@@ -758,10 +762,10 @@ function Editor({
               }}
             >
               <option value="MCQ_CQ">MCQ → CQ</option>
-              <option value="WRITTEN">সাধারণ লিখিত প্রশ্ন</option>
+              <option value="WRITTEN">Written only</option>
             </select>
           </Field>
-          <Field label="খোলার সময় (এই কম্পিউটারের সময়)">
+          <Field label="Opens at (local time)">
             <input
               type="datetime-local"
               required
@@ -772,7 +776,7 @@ function Editor({
               }
             />
           </Field>
-          <Field label="চূড়ান্ত deadline">
+          <Field label="Final deadline">
             <input
               type="datetime-local"
               required
@@ -784,7 +788,7 @@ function Editor({
             />
           </Field>
           <fieldset className="wide">
-            <legend>যে class-এর জন্য</legend>
+            <legend>Assign to classes</legend>
             <div className="checks">
               {CLASSES.map((c) => (
                 <label key={c}>
@@ -798,37 +802,60 @@ function Editor({
               ))}
             </div>
           </fieldset>
-          <Field label="নির্দেশনা">
+          <fieldset className="wide">
+            <legend>Individual students</legend>
+            <p className="muted">Select students, classes, or both.</p>
+            <div className="checks">
+              {students.filter((student) => student.status === "APPROVED" || data.studentIds?.includes(student.id)).map((student) => (
+                <label key={student.id}>
+                  <input type="checkbox" checked={data.studentIds?.includes(student.id) ?? false}
+                    onChange={(event) => {
+                      const current = data.studentIds ?? [];
+                      f.setValue("studentIds", event.target.checked ? [...current, student.id] : current.filter((id) => id !== student.id));
+                    }} />
+                  {" "}{student.name} · Class {student.className}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {data.kind === "HOMEWORK" && <Field label="Submission method">
+            <select {...f.register("homeworkMethod")}>
+              <option value="NOTEBOOK">Bring your notebook</option>
+              <option value="PHOTO">Submit a photo</option>
+            </select>
+          </Field>}
+          <Field label="Chapter"><input {...f.register("chapter")} maxLength={120} placeholder="e.g. Chapter 16.2" /></Field>
+          <Field label="Instructions">
             <textarea rows={3} {...f.register("instructions")} />
           </Field>
         </div>
         {data.kind === "EXAM" && (
           <>
-            <h3>সময় ও pause</h3>
+            <h3>Timing and pauses</h3>
             <div className="formgrid">
               {data.mode === "MCQ_CQ" ? (
                 <>
-                  {minutes("mcqSeconds", "MCQ মূল সময় (মিনিট)")}
-                  {minutes("mcqExtraSeconds", "MCQ extra সময় (মিনিট)")}
-                  {minutes("cqSeconds", "CQ সময় (মিনিট)")}
+                  {minutes("mcqSeconds", "MCQ Main time (min)")}
+                  {minutes("mcqExtraSeconds", "MCQ extra Time (min)")}
+                  {minutes("cqSeconds", "CQ Time (min)")}
                 </>
               ) : (
-                minutes("writtenSeconds", "লিখিত সময় (মিনিট)")
+                minutes("writtenSeconds", "Written time (min)")
               )}
-              <Field label="Pause অনুমতি">
+              <Field label="Pause Permission">
                 <select
                   value={String(data.allowPause)}
                   onChange={(e) =>
                     f.setValue("allowPause", e.target.value === "true")
                   }
                 >
-                  <option value="true">অনুমতি থাকবে (Class 8, 9 ও 11)</option>
-                  <option value="false">অনুমতি থাকবে না</option>
+                  <option value="true">Allowed for Classes 8, 9 and 11</option>
+                  <option value="false">Disabled</option>
                 </select>
               </Field>
               {data.allowPause && (
                 <>
-                  <Field label="সর্বোচ্চ pause সংখ্যা">
+                  <Field label="Maximum pauses">
                     <input
                       type="number"
                       min={1}
@@ -836,18 +863,18 @@ function Editor({
                       {...f.register("maxPauseCount", { valueAsNumber: true })}
                     />
                   </Field>
-                  {minutes("maxPauseSeconds", "মোট pause সময় (মিনিট)")}
+                  {minutes("maxPauseSeconds", "Total pause time (min)")}
                 </>
               )}
             </div>
             <p className="muted">
-              Extra সময়েও MCQ উত্তর দেওয়া যাবে। Pause করলে final deadline বাড়বে
-              না। MCQ শেষের সঙ্গে সঙ্গে CQ-এর সময় চলবে।
+              Extra also allows MCQ answers. Pausing does not extend the final deadline
+              . The written timer starts as soon as the MCQ section ends.
             </p>
           </>
         )}
         <div className="sectionhead">
-          <h3>প্রশ্ন</h3>
+          <h3>Question</h3>
           <div className="actions">
             {data.mode === "MCQ_CQ" && data.kind === "EXAM" ? (
               <>
@@ -872,7 +899,7 @@ function Editor({
                 secondary
                 onClick={() => append(newQuestion("WRITTEN"))}
               >
-                + লিখিত প্রশ্ন
+                + Written questions
               </Button>
             )}
           </div>
@@ -881,20 +908,20 @@ function Editor({
           <section className="question" key={q.id}>
             <div className="sectionhead">
               <b>
-                প্রশ্ন {i + 1} · {data.questions[i]?.type}
+                Question {i + 1} · {data.questions[i]?.type}
               </b>
               <Button type="button" secondary onClick={() => remove(i)}>
-                বাদ দিন
+                Remove
               </Button>
             </div>
-            <Field label="প্রশ্নের বিবরণ">
+            <Field label="Question details">
               <textarea
                 rows={4}
                 required
                 {...f.register(`questions.${i}.text`)}
               />
             </Field>
-            <Field label="নম্বর">
+            <Field label="marks">
               <input
                 type="number"
                 min="0.5"
@@ -907,7 +934,7 @@ function Editor({
             {data.questions[i]?.type === "MCQ" && (
               <>
                 <div className="formgrid">
-                  {["ক", "খ", "গ", "ঘ"].map((l, j) => (
+                  {["A", "B", "C", "D"].map((l, j) => (
                     <Field key={l} label={l}>
                       <input
                         required
@@ -916,13 +943,13 @@ function Editor({
                     </Field>
                   ))}
                 </div>
-                <Field label="সঠিক উত্তর">
+                <Field label="Correct answer">
                   <select
                     {...f.register(`questions.${i}.correctIndex`, {
                       valueAsNumber: true,
                     })}
                   >
-                    {["ক", "খ", "গ", "ঘ"].map((l, j) => (
+                    {["A", "B", "C", "D"].map((l, j) => (
                       <option value={j} key={l}>
                         {l}
                       </option>
@@ -934,7 +961,7 @@ function Editor({
           </section>
         ))}
         <p>
-          মোট নম্বর:{" "}
+          Total marks:{" "}
           {data.questions.reduce((s, q) => s + (Number(q.marks) || 0), 0)}
         </p>
         {error && (
@@ -944,10 +971,10 @@ function Editor({
         )}
         <div className="formfoot">
           <Button type="button" secondary disabled={busy} onClick={close}>
-            বাতিল
+            Cancel
           </Button>
           <Button disabled={busy}>
-            {busy ? "সংরক্ষণ হচ্ছে…" : "খসড়া সংরক্ষণ"}
+            {busy ? "Saving…" : "Save draft"}
           </Button>
         </div>
       </form>
@@ -966,37 +993,48 @@ function Grade({
   const [score, setScore] = useState(String(a.writtenScore ?? ""));
   const [feedback, setFeedback] = useState(a.feedback);
   const [busy, setBusy] = useState(false);
-  async function submit(publish: boolean) {
+  const photo = useQuery({
+    queryKey: ["homework-photo", a.id],
+    queryFn: () => api<{ photo: string | null }>("/admin/submissions/" + a.id + "/photo"),
+    enabled: a.assessment.homeworkMethod === "PHOTO",
+    staleTime: 0,
+    gcTime: 0,
+  });
+  async function submit(publish: boolean, needsRevision = false) {
     setBusy(true);
     try {
-      await save({ writtenScore: Number(score), feedback, publish });
+      await save({ writtenScore: Number(score), feedback, publish, needsRevision });
     } finally {
       setBusy(false);
     }
   }
   return (
-    <Modal title="খাতা দেখে নম্বর দিন" onClose={close}>
+    <Modal title="Review written answers" onClose={close}>
       <p>
         <b>{a.user.name}</b> · {a.assessment.title}
       </p>
       <p>
-        MCQ: {a.mcqScore} · লিখিত পূর্ণমান: {a.writtenMax}
+        MCQ: {a.mcqScore} · Written maximum: {a.writtenMax}
       </p>
+      {photo.isFetching && <p>Loading submission photo…</p>}
+      {photo.error && <p className="error">{photo.error.message}</p>}
+      {!photo.isFetching && photo.data?.photo && <img src={"data:image/jpeg;base64," + photo.data.photo} alt="Submitted homework" style={{ maxWidth: "100%", maxHeight: 480, objectFit: "contain" }} />}
+      {a.revisionFeedback !== null && a.revisionFeedback !== undefined && <p>Awaiting resubmission · {a.revisionFeedback}</p>}
       {a.assessment.questions
         .filter((q) => q.type === "MCQ")
         .map((q) => (
           <div className="question" key={q.id}>
             <p>{q.text}</p>
             <small>
-              সঠিক: {q.options?.[q.correctIndex ?? -1]} · শিক্ষার্থীর উত্তর:{" "}
+              Correct: {q.options?.[q.correctIndex ?? -1]} · Student answer:{" "}
               {q.options?.[
                 a.answers.find((x) => x.questionId === q.id)?.selectedIndex ??
                   -1
-              ] || "দেয়নি"}
+              ] || "Unanswered"}
             </small>
           </div>
         ))}
-      <Field label={`খাতা দেখে মোট লিখিত নম্বর (০–${a.writtenMax})`}>
+      <Field label={`Written score (0–${a.writtenMax})`}>
         <input
           type="number"
           min={0}
@@ -1006,7 +1044,7 @@ function Grade({
           onChange={(e) => setScore(e.target.value)}
         />
       </Field>
-      <Field label="মন্তব্য">
+      <Field label="Feedback">
         <textarea
           rows={4}
           value={feedback}
@@ -1014,27 +1052,29 @@ function Grade({
         />
       </Field>
       <p className="muted">
-        চূড়ান্ত deadline: {date(a.assessment.closesAt)}। এর পরে ফলাফল প্রকাশ করা
-        যাবে।
+        Final deadline: {date(a.assessment.closesAt)}. Results can be published after this deadline.
+
       </p>
       <div className="formfoot">
         <Button
           secondary
-          disabled={busy || score === ""}
+          disabled={busy || score === "" || a.revisionFeedback != null}
           onClick={() => submit(false)}
         >
-          নম্বর সংরক্ষণ
+          Save marks
         </Button>
         <Button
           disabled={
             busy ||
-            score === "" ||
+            score === "" || a.revisionFeedback != null ||
             Date.now() < Date.parse(a.assessment.closesAt)
           }
           onClick={() => submit(true)}
         >
-          ফলাফল প্রকাশ
+          Publish results
         </Button>
+        {a.assessment.kind === "HOMEWORK" && !a.resultPublished && Date.now() < Date.parse(a.assessment.closesAt) &&
+          <Button secondary disabled={busy || !feedback.trim()} onClick={() => submit(false, true)}>Request revision</Button>}
       </div>
     </Modal>
   );
@@ -1056,11 +1096,11 @@ function printExam(e: AdminAssessment) {
   frame.style.cssText = "position:fixed;width:0;height:0;border:0";
   document.body.appendChild(frame);
   const paper = window.confirm(
-    "A5 কাগজের জন্য OK চাপুন। A4-এর জন্য Cancel চাপুন।",
+    "A5 Select OK for A5 or Cancel for A4.",
   )
     ? "A5"
     : "A4";
-  frame.srcdoc = `<!doctype html><html lang="bn"><head><meta charset="utf-8"><style>@page{size:${paper};margin:12mm}body{font:14px/1.7 Arial,sans-serif;color:#000;background:#fff}h1,h2{text-align:center;margin:0}h1{font-size:20px}h2{font-size:16px}.meta{display:flex;justify-content:space-between;border-bottom:1px solid #000;padding:10px 0}.q{break-inside:avoid;margin:16px 0;white-space:pre-line}.opts{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-weight:normal}</style></head><body><h1>CT Exam</h1><h2>${escape(e.title)}</h2><p style="text-align:center">Class ${e.classNames.join(", ")} · ${escape(e.subject)}</p><div class="meta"><span>সময়: ${e.kind === "EXAM" ? (e.mode === "MCQ_CQ" ? e.mcqSeconds + e.mcqExtraSeconds + e.cqSeconds : e.writtenSeconds) / 60 : "—"} মিনিট</span><span>পূর্ণমান: ${e.totalMarks}</span></div><p>নাম: _____________________ &nbsp; তারিখ: __________</p><p>${escape(e.instructions)}</p>${e.questions.map((q, i) => `<div class="q"><b>${i + 1}. ${escape(q.text)} [${q.marks}]</b>${q.type === "MCQ" ? `<div class="opts">${q.options?.map((o, j) => `<span>${["ক", "খ", "গ", "ঘ"][j]}) ${escape(o)}</span>`).join("")}</div>` : ""}</div>`).join("")}</body></html>`;
+  frame.srcdoc = `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>@page{size:${paper};margin:12mm}body{font:14px/1.7 Arial,sans-serif;color:#000;background:#fff}h1,h2{text-align:center;margin:0}h1{font-size:20px}h2{font-size:16px}.meta{display:flex;justify-content:space-between;border-bottom:1px solid #000;padding:10px 0}.q{break-inside:avoid;margin:16px 0;white-space:pre-line}.opts{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-weight:normal}</style></head><body><h1>CT Exam</h1><h2>${escape(e.title)}</h2><p style="text-align:center">Class ${e.classNames.join(", ")} · ${escape(e.subject)}</p><div class="meta"><span>Time: ${e.kind === "EXAM" ? (e.mode === "MCQ_CQ" ? e.mcqSeconds + e.mcqExtraSeconds + e.cqSeconds : e.writtenSeconds) / 60 : "—"} min</span><span>Total marks: ${e.totalMarks}</span></div><p>Name: _____________________ &nbsp; Date: __________</p><p>${escape(e.instructions)}</p>${e.questions.map((q, i) => `<div class="q"><b>${i + 1}. ${escape(q.text)} [${q.marks}]</b>${q.type === "MCQ" ? `<div class="opts">${q.options?.map((o, j) => `<span>${["A", "B", "C", "D"][j]}) ${escape(o)}</span>`).join("")}</div>` : ""}</div>`).join("")}</body></html>`;
   frame.onload = () => {
     frame.contentWindow?.focus();
     frame.contentWindow?.print();
