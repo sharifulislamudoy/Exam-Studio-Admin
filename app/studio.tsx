@@ -18,6 +18,11 @@ import {
 } from "./contracts";
 import { api } from "./api";
 import { Button, Field, Status, Panel, Modal } from "./ui";
+import {
+  DashboardIcon,
+  DashboardShell,
+  type DashboardTab,
+} from "./dashboard-shell";
 type AdminAssessment = Omit<AssessmentView, "questions"> & {
   questions: (QuestionView & { correctIndex?: number })[];
 };
@@ -59,7 +64,7 @@ export default function Dashboard() {
 }
 function Studio() {
   const qc = useQueryClient();
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState<DashboardTab>("overview");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState<AdminAssessment | null | false>(false);
@@ -67,10 +72,11 @@ function Studio() {
   const [busy, setBusy] = useState(false);
   const me = useQuery({
     queryKey: ["me"],
-    queryFn: () => api<UserView>("/me"),
+    queryFn: () => api<UserView | null>("/me"),
     retry: false,
   });
-  const enabled = !!me.data && me.data.role === "TEACHER";
+  const teacher = me.data?.role === "TEACHER" ? me.data : null;
+  const enabled = teacher !== null;
   const students = useQuery({
     queryKey: ["students"],
     queryFn: () => api<UserView[]>("/admin/students"),
@@ -110,7 +116,7 @@ function Studio() {
         <p>লোড হচ্ছে…</p>
       </main>
     );
-  if (!enabled)
+  if (!teacher)
     return (
       <Login
         onSuccess={() => void qc.invalidateQueries({ queryKey: ["me"] })}
@@ -121,68 +127,27 @@ function Studio() {
     aa = attempts.data || [];
   return (
     <div className="shell">
-      <aside>
-        <h1>Exam Studio</h1>
-        <p className="muted">Teacher dashboard</p>
-        <nav>
-          {[
-            ["overview", "সারসংক্ষেপ"],
-            ["assessments", "পরীক্ষা ও হোমওয়ার্ক"],
-            ["students", "শিক্ষার্থী"],
-            ["review", "নম্বর ও ফলাফল"],
-          ].map(([id, t]) => (
-            <button
-              key={id}
-              className={tab === id ? "selected" : ""}
-              onClick={() => {
-                setTab(id);
-                setNotice("");
-                setError("");
-              }}
-            >
-              {t}
-            </button>
-          ))}
-        </nav>
-        <div className="account">
-          <b>{me.data?.name}</b>
-          <small>{me.data?.email}</small>
-          <Button
-            secondary
-            onClick={() =>
-              run(() => api("/auth/logout", "POST", {}), "Signed out")
-            }
-          >
-            Logout
-          </Button>
-        </div>
-      </aside>
-      <main>
-        <header className="pagehead">
-          <div>
-            <h2>
-              {
-                (
-                  {
-                    overview: "সারসংক্ষেপ",
-                    assessments: "পরীক্ষা ও হোমওয়ার্ক",
-                    students: "শিক্ষার্থী",
-                    review: "নম্বর ও ফলাফল",
-                  } as Record<string, string>
-                )[tab]
-              }
-            </h2>
-            <p className="muted">
-              বাংলাদেশ সময় অনুযায়ী সময় নির্ধারণ করুন। CQ ও homework খাতায় দেখা
-              হবে।
-            </p>
-          </div>
-          {tab !== "students" && (
-            <Button onClick={() => setEditing(null)}>
-              নতুন exam / homework
-            </Button>
-          )}
-        </header>
+      <DashboardShell
+        teacher={teacher}
+        tab={tab}
+        onTabChange={(nextTab) => {
+          setTab(nextTab);
+          setNotice("");
+          setError("");
+        }}
+        onCreate={() => setEditing(null)}
+        onLogout={async () => {
+          await api("/auth/logout", "POST", {}, false);
+          await qc.cancelQueries({ queryKey: ["me"], exact: true });
+          qc.setQueryData(["me"], null);
+          for (const key of ["students", "exams", "attempts"]) {
+            qc.removeQueries({ queryKey: [key], exact: true });
+          }
+          setTab("overview");
+          setNotice("");
+          setError("");
+        }}
+      >
         {error && (
           <div className="error" role="alert">
             {error}
@@ -203,27 +168,39 @@ function Studio() {
         {tab === "overview" && (
           <>
             <div className="stats">
-              {[
+              {([
                 [
+                  "users",
                   "অনুমোদিত শিক্ষার্থী",
-                  ss.filter((s) => s.status === "APPROVED").length,
+                  ss.filter((student) => student.status === "APPROVED").length,
                 ],
                 [
-                  "Approval বাকি",
-                  ss.filter((s) => s.status === "PENDING" || s.requestedClass)
-                    .length,
-                ],
-                ["প্রকাশিত কাজ", ee.filter((e) => e.published).length],
-                [
-                  "খাতা দেখা বাকি",
-                  aa.filter(
-                    (a) => a.status === "FINISHED" && a.writtenScore === null,
+                  "clock",
+                  "অনুমোদন বাকি",
+                  ss.filter(
+                    (student) => student.status === "PENDING" || student.requestedClass,
                   ).length,
                 ],
-              ].map(([title, value]) => (
+                [
+                  "clipboard",
+                  "প্রকাশিত কাজ",
+                  ee.filter((exam) => exam.published).length,
+                ],
+                [
+                  "chart",
+                  "খাতা দেখা বাকি",
+                  aa.filter(
+                    (attempt) =>
+                      attempt.status === "FINISHED" && attempt.writtenScore === null,
+                  ).length,
+                ],
+              ] as const).map(([icon, title, value]) => (
                 <Panel key={title}>
+                  <span className={`stat-icon stat-${icon}`}>
+                    <DashboardIcon name={icon} />
+                  </span>
+                  <strong>{value.toLocaleString("bn-BD")}</strong>
                   <p className="muted">{title}</p>
-                  <strong>{value}</strong>
                 </Panel>
               ))}
             </div>
@@ -244,7 +221,12 @@ function Studio() {
         )}
         {tab === "students" && (
           <Panel>
-            <div className="table">
+            <div
+              className="table-scroll"
+              role="region"
+              aria-label="শিক্ষার্থীর তালিকা"
+              tabIndex={0}
+            >
               <table>
                 <thead>
                   <tr>
@@ -360,7 +342,12 @@ function Studio() {
         {(tab === "overview" || tab === "assessments") && (
           <Panel>
             <h3>Exam / homework তালিকা</h3>
-            <div className="table">
+            <div
+              className="table-scroll"
+              role="region"
+              aria-label="পরীক্ষা ও হোমওয়ার্কের তালিকা"
+              tabIndex={0}
+            >
               <table>
                 <thead>
                   <tr>
@@ -461,7 +448,12 @@ function Studio() {
         )}
         {tab === "review" && (
           <Panel>
-            <div className="table">
+            <div
+              className="table-scroll"
+              role="region"
+              aria-label="জমা দেওয়া কাজের তালিকা"
+              tabIndex={0}
+            >
               <table>
                 <thead>
                   <tr>
@@ -549,7 +541,7 @@ function Studio() {
             }}
           />
         )}
-      </main>
+      </DashboardShell>
     </div>
   );
 }
@@ -830,7 +822,7 @@ function Editor({
                     f.setValue("allowPause", e.target.value === "true")
                   }
                 >
-                  <option value="true">অনুমতি থাকবে (Class 3 ছাড়া)</option>
+                  <option value="true">অনুমতি থাকবে (Class 8, 9 ও 11)</option>
                   <option value="false">অনুমতি থাকবে না</option>
                 </select>
               </Field>
